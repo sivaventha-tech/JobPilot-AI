@@ -1,0 +1,34 @@
+# ==============================================================================
+# JobPilot AI FastAPI Backend — Production Dockerfile (with Playwright Chromium)
+# Use when deploying to container environments with >= 2GB RAM (Fly.io, Railway, AWS ECS)
+# ==============================================================================
+
+FROM mcr.microsoft.com/playwright/python:v1.49.0-jammy
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=8000 \
+    JOBPILOT_ENABLE_BROWSER_AUTOMATION=true
+
+WORKDIR /app
+
+# Upgrade pip and install application dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Install Playwright Chromium browser binaries and system OS dependencies
+RUN python -m playwright install --with-deps chromium
+
+# Copy backend application code
+COPY app ./app
+
+# Run as pwuser (pre-configured non-root user in official Playwright image)
+USER pwuser
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -f http://127.0.0.1:${PORT:-8000}/api/v1/health || exit 1
+
+CMD exec python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips "*"

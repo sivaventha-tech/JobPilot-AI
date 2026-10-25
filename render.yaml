@@ -1,0 +1,39 @@
+# ==============================================================================
+# JobPilot AI — Render.com Blueprint Configuration Example
+# ==============================================================================
+services:
+  - type: web
+    name: jobpilot-fastapi-backend
+    runtime: docker
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    plan: starter
+    region: oregon
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: JOBPILOT_AI_PROVIDER
+        value: gemini # or openai / none
+      - key: GEMINI_API_KEY
+        sync: false # Set in Render Dashboard Secret UI
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: JOBPILOT_SEARCH_PROVIDER
+        value: duckduckgo # Free public search via ddgs
+      - key: JOBPILOT_REQUIRE_AUTH
+        value: "true" # Enforces API Bearer Token auth on sensitive routes
+      - key: JOBPILOT_API_AUTH_TOKEN
+        sync: false # Set securely in Render Dashboard Secret UI
+      - key: JOBPILOT_RATE_LIMIT_ENABLED
+        value: "true"
+      - key: JOBPILOT_RATE_LIMIT_RPM
+        value: "60"
+      - key: JOBPILOT_EXPENSIVE_RATE_LIMIT_RPM
+        value: "15"
+      - key: JOBPILOT_ENABLE_BROWSER_AUTOMATION
+        value: "false" # Disabled by default in production; set to "true" only on >=2GB RAM plan
+      - key: JOBPILOT_CORS_ORIGINS
+        value: https://your-jobpilot-app.vercel.app # Explicitly allowed production origins only
+      - key: JOBPILOT_HTTP_TIMEOUT_SECONDS
+        value: "10"
+      - key: JOBPILOT_ASSIST_TIMEOUT_SECONDS
+        value: "15"

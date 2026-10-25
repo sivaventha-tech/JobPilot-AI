@@ -1,0 +1,46 @@
+# Node & Next.js
+node_modules
+.next
+out
+dist
+.DS_Store
+*.tsbuildinfo
+next-env.d.ts
+
+# Environment & Secrets (Server-side & Client-side)
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+
+# Python & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+backend/.venv/
+.venv/
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+eggs/
+.eggs/
+parts/
+var/
+sdist/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing & Caches
+.pytest_cache/
+.coverage
+htmlcov/
+tests/.pytest_cache/
+test-results/
+playwright-report/
+.playwright/
