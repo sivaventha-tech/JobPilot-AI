@@ -40,7 +40,20 @@ def get_storage_root() -> Path:
             db_dir = Path(db_path).resolve().parent
             root = (db_dir / "storage").resolve()
 
-    root.mkdir(parents=True, exist_ok=True)
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise PermissionError(
+            f"FATAL: Storage directory '{root}' cannot be accessed or created: {exc}. "
+            "Ensure persistent storage is mounted with write permissions."
+        ) from exc
+
+    if not os.access(root, os.W_OK):
+        raise PermissionError(
+            f"FATAL: Storage directory '{root}' is not writable by current user. "
+            "Ensure persistent storage permissions allow write access for the application user."
+        )
+
     return root
 
 

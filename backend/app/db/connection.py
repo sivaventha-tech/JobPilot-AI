@@ -27,7 +27,25 @@ class DatabaseManager:
         self._conn: sqlite3.Connection | None = None
 
         if self.db_path != ":memory:" and not self.db_path.startswith("file:"):
-            os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
+            db_dir = os.path.dirname(os.path.abspath(self.db_path))
+            try:
+                os.makedirs(db_dir, exist_ok=True)
+            except OSError as exc:
+                raise PermissionError(
+                    f"FATAL: Database directory '{db_dir}' cannot be accessed or created: {exc}. "
+                    "Ensure persistent storage is mounted with write permissions."
+                ) from exc
+
+            if not os.access(db_dir, os.W_OK):
+                raise PermissionError(
+                    f"FATAL: Database directory '{db_dir}' is not writable by current user. "
+                    "Ensure persistent storage permissions allow write access for the application user."
+                )
+
+            if os.path.exists(self.db_path) and not os.access(self.db_path, os.W_OK):
+                raise PermissionError(
+                    f"FATAL: Database file '{self.db_path}' exists but is not writable by current user."
+                )
 
         self.ensure_initialized()
 
