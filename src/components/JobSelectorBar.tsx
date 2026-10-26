@@ -62,6 +62,13 @@ export function JobSelectorBar({ label = "Active Job Context" }: JobSelectorBarP
           <span className="text-xs text-slate-500 px-2 py-0.5 bg-slate-100 rounded-md">
             Source: {selectedJob.source}
           </span>
+          <Link
+            href={`/jobs/${selectedJob.id}`}
+            className="text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-0.5 ml-1"
+            title={`View full details for ${selectedJob.title}`}
+          >
+            Details →
+          </Link>
         </div>
       )}
     </div>

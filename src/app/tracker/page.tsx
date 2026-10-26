@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useJobPilot } from "@/context/JobPilotContext";
 import { ApplicationStatus, JobSource } from "@/types/jobpilot";
-import { findPotentialDuplicateApplications } from "@/services/api-client";
+import { findPotentialDuplicateApplications, formatSafeExternalUrl } from "@/services/api-client";
 import {
   ApplicationStatusBadge,
   MatchScoreBadge,
@@ -24,6 +24,7 @@ import {
   RotateCcw,
   AlertTriangle,
   History,
+  Eye,
 } from "lucide-react";
 
 const ALL_STATUSES: ApplicationStatus[] = [
@@ -262,7 +263,14 @@ export default function ApplicationTrackerPage() {
                   >
                     <td className="py-4 px-4">
                       <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
-                        <span>{job.title}</span>
+                        <Link
+                          href={`/jobs/${job.id}`}
+                          onClick={() => selectJob(job.id)}
+                          className="hover:text-blue-600 hover:underline"
+                          title={`View internal details for ${job.title}`}
+                        >
+                          {job.title}
+                        </Link>
                         {findPotentialDuplicateApplications(job, jobs).isDuplicate && (
                           <span
                             title="Another active opportunity with the same role or application URL exists"
@@ -297,12 +305,12 @@ export default function ApplicationTrackerPage() {
                         <span className="px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-800">
                           {job.source}
                         </span>
-                        {job.applicationUrl && (
+                        {formatSafeExternalUrl(job.applicationUrl) && (
                           <a
-                            href={job.applicationUrl}
+                            href={formatSafeExternalUrl(job.applicationUrl)!}
                             target="_blank"
                             rel="noopener noreferrer"
-                            title="Open posting URL"
+                            title={`Open original posting on ${job.source} (opens in new tab)`}
                             className="text-blue-600 hover:text-blue-800"
                           >
                             <ExternalLink className="w-3.5 h-3.5" />
@@ -365,6 +373,15 @@ export default function ApplicationTrackerPage() {
                             Retry
                           </button>
                         )}
+                        <Link
+                          href={`/jobs/${job.id}`}
+                          onClick={() => selectJob(job.id)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors"
+                          title="View Internal Job Details"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          Details
+                        </Link>
                         <button
                           type="button"
                           onClick={() => handleOpenJobRoute(job.id, "/analysis")}

@@ -1627,3 +1627,83 @@ export async function callBrowserAssistantApi(
     clearTimeout(timer);
   }
 }
+
+/**
+ * Validates and normalizes an external job posting URL.
+ * Returns an absolute HTTP or HTTPS URL string, or null if the input is missing,
+ * empty, invalid, or uses an unsafe protocol (e.g. javascript:, data:, file:).
+ */
+export function formatSafeExternalUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const trimmed = url.trim();
+  if (
+    !trimmed ||
+    trimmed === "#" ||
+    trimmed.startsWith("#") ||
+    trimmed.toLowerCase().startsWith("javascript:") ||
+    trimmed.toLowerCase().startsWith("data:") ||
+    trimmed.toLowerCase().startsWith("vbscript:") ||
+    trimmed.toLowerCase().startsWith("file:")
+  ) {
+    return null;
+  }
+
+  // If already starts with http:// or https://
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        return parsed.href;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  // If looks like a domain (e.g. www.linkedin.com, careers.example.com/job/123)
+  if (/^[a-zA-Z0-9][-a-zA-Z0-9]*(\.[a-zA-Z0-9][-a-zA-Z0-9]*)+(\/.*)?$/i.test(trimmed)) {
+    try {
+      const parsed = new URL(`https://${trimmed}`);
+      if (parsed.protocol === "https:" && parsed.hostname.includes(".")) {
+        return parsed.href;
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Checks whether an external URL is valid and safe to open in a new tab.
+ */
+export function isValidExternalUrl(url: string | null | undefined): boolean {
+  return formatSafeExternalUrl(url) !== null;
+}
+
+/**
+ * Validates whether a job ID is a valid identifier for internal JobPilot dynamic routes.
+ */
+export function isValidJobId(jobId: string | null | undefined): boolean {
+  if (!jobId) return false;
+  const trimmed = jobId.trim();
+  if (!trimmed || trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("..")) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Builds the internal JobPilot job-details route for a given job ID.
+ * Returns / if the job ID is missing or invalid.
+ */
+export function getInternalJobPath(jobId: string | null | undefined): string {
+  if (!isValidJobId(jobId)) {
+    return "/";
+  }
+  return `/jobs/${encodeURIComponent(jobId!.trim())}`;
+}
+
+

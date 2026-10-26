@@ -4,6 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useJobPilot } from "@/context/JobPilotContext";
+import { formatSafeExternalUrl } from "@/services/api-client";
 import {
   ApplicationStatusBadge,
   MatchScoreBadge,
@@ -23,6 +24,8 @@ import {
   ScanSearch,
   CheckSquare,
   MessageSquareShare,
+  ExternalLink,
+  Eye,
 } from "lucide-react";
 
 export default function DashboardPage() {
@@ -245,63 +248,94 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 text-sm">
-                  {jobs.slice(0, 6).map((job) => (
-                    <tr
-                      key={job.id}
-                      className="hover:bg-slate-50/80 transition-colors"
-                    >
-                      <td className="py-3.5 px-4">
-                        <div className="font-semibold text-slate-900">
-                          {job.title}
-                        </div>
-                        <div className="text-xs text-slate-500">
-                          {job.company} • {job.location}
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">
-                          {job.source}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <MatchScoreBadge score={job.matchScore} />
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <ApplicationStatusBadge status={job.status} />
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <ReviewStateBadge state={job.reviewState} />
-                      </td>
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="inline-flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenJobRoute(job.id, "/analysis")}
-                            title="View Job Analysis"
-                            className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-200/70 hover:text-slate-900 transition-colors"
-                          >
-                            <ScanSearch className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenJobRoute(job.id, "/review")}
-                            title="Review & Approve Application"
-                            className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-200/70 hover:text-slate-900 transition-colors"
-                          >
-                            <CheckSquare className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenJobRoute(job.id, "/outreach")}
-                            title="Recruiter Outreach Drafts"
-                            className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-200/70 hover:text-slate-900 transition-colors"
-                          >
-                            <MessageSquareShare className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                  {jobs.slice(0, 6).map((job) => {
+                    const safeExternalUrl = formatSafeExternalUrl(job.applicationUrl);
+                    return (
+                      <tr
+                        key={job.id}
+                        className="hover:bg-slate-50/80 transition-colors"
+                      >
+                        <td className="py-3.5 px-4">
+                          <div className="font-semibold text-slate-900">
+                            <Link
+                              href={`/jobs/${job.id}`}
+                              onClick={() => selectJob(job.id)}
+                              className="hover:text-blue-600 hover:underline inline-flex items-center gap-1.5"
+                              title={`View internal details for ${job.title}`}
+                            >
+                              {job.title}
+                            </Link>
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            {job.company} • {job.location}
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <div className="inline-flex items-center gap-1.5">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">
+                              {job.source}
+                            </span>
+                            {safeExternalUrl && (
+                              <a
+                                href={safeExternalUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={`Open original posting on ${job.source} (opens in new tab)`}
+                                className="text-blue-600 hover:text-blue-800 p-0.5 rounded"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <MatchScoreBadge score={job.matchScore} />
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <ApplicationStatusBadge status={job.status} />
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <ReviewStateBadge state={job.reviewState} />
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="inline-flex items-center gap-1">
+                            <Link
+                              href={`/jobs/${job.id}`}
+                              onClick={() => selectJob(job.id)}
+                              title="View Job Details"
+                              className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-200/70 hover:text-slate-900 transition-colors"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenJobRoute(job.id, "/analysis")}
+                              title="View Job Analysis"
+                              className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-200/70 hover:text-slate-900 transition-colors"
+                            >
+                              <ScanSearch className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenJobRoute(job.id, "/review")}
+                              title="Review & Approve Application"
+                              className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-200/70 hover:text-slate-900 transition-colors"
+                            >
+                              <CheckSquare className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenJobRoute(job.id, "/outreach")}
+                              title="Recruiter Outreach Drafts"
+                              className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-200/70 hover:text-slate-900 transition-colors"
+                            >
+                              <MessageSquareShare className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -359,11 +393,12 @@ export default function DashboardPage() {
                 .sort((a, b) => b.matchScore - a.matchScore)
                 .slice(0, 3)
                 .map((job) => (
-                  <button
+                  <Link
                     key={job.id}
-                    type="button"
-                    onClick={() => handleOpenJobRoute(job.id, "/analysis")}
-                    className="w-full text-left p-3 rounded-lg border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all flex items-center justify-between gap-2"
+                    href={`/jobs/${job.id}`}
+                    onClick={() => selectJob(job.id)}
+                    className="w-full text-left p-3 rounded-lg border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all flex items-center justify-between gap-2 block"
+                    title={`View details for ${job.title}`}
                   >
                     <div className="min-w-0">
                       <div className="text-xs font-semibold text-slate-900 truncate">
@@ -375,7 +410,7 @@ export default function DashboardPage() {
                       </div>
                     </div>
                     <MatchScoreBadge score={job.matchScore} />
-                  </button>
+                  </Link>
                 ))}
             </div>
 
