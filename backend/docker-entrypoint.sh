@@ -11,27 +11,48 @@ if [ $# -eq 0 ] || [ "${1#-}" != "$1" ]; then
     set -- python -m uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}" --proxy-headers --forwarded-allow-ips "*" "$@"
 fi
 
-# If command is python/uvicorn and PORT is set (e.g. dynamically assigned by Render),
-# ensure the --port parameter matches the runtime PORT environment variable
+# If PORT is provided in the environment (e.g. Render dynamic PORT assignment),
+# safely update or append the --port argument using POSIX positional parameters.
+# NEVER use eval or unquoted string concatenation (prevents pathname glob expansion of "*").
 if [ -n "$PORT" ] && [ "$PORT" != "8000" ]; then
-    PORT_SET=0
-    NEW_ARGS=""
-    SKIP_NEXT=0
-    for arg in "$@"; do
-        if [ "$SKIP_NEXT" -eq 1 ]; then
-            NEW_ARGS="$NEW_ARGS $PORT"
-            SKIP_NEXT=0
-            PORT_SET=1
-            continue
-        fi
-        if [ "$arg" = "--port" ]; then
-            NEW_ARGS="$NEW_ARGS --port"
-            SKIP_NEXT=1
-            continue
-        fi
-        NEW_ARGS="$NEW_ARGS $arg"
+    has_port=0
+    for arg do
+        case "$arg" in
+            --port | --port=*)
+                has_port=1
+                break
+                ;;
+        esac
     done
-    eval "set -- $NEW_ARGS"
+
+    if [ "$has_port" -eq 1 ]; then
+        skip_next=0
+        for arg do
+            shift
+            if [ "$skip_next" -eq 1 ]; then
+                skip_next=0
+                continue
+            fi
+            if [ "$arg" = "--port" ]; then
+                set -- "$@" "--port" "$PORT"
+                skip_next=1
+                continue
+            fi
+            case "$arg" in
+                --port=*)
+                    set -- "$@" "--port=$PORT"
+                    continue
+                    ;;
+            esac
+            set -- "$@" "$arg"
+        done
+    else
+        case "$*" in
+            *uvicorn*)
+                set -- "$@" "--port" "$PORT"
+                ;;
+        esac
+    fi
 fi
 
 # Determine persistent data directory from JOBPILOT_DB_PATH

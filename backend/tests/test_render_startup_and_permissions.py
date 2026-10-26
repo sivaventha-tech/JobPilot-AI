@@ -133,3 +133,125 @@ def test_render_yaml_persistent_disk_alignment():
 
     assert "mountPath: /var/data" in content
     assert "value: /var/data/jobpilot.db" in content
+
+
+def test_docker_entrypoint_no_eval_and_no_requirements_txt_globbing():
+    """Confirms docker-entrypoint.sh avoids unsafe eval and string concatenation,
+    preventing pathname expansion of '*' into requirements.txt.
+    """
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    entrypoint_path = repo_root / "backend" / "docker-entrypoint.sh"
+
+    content = entrypoint_path.read_text(encoding="utf-8")
+
+    # eval must NOT be used in code
+    code_lines = [line.strip() for line in content.splitlines() if line.strip() and not line.strip().startswith("#")]
+    eval_lines = [line for line in code_lines if "eval " in line or line.startswith("eval")]
+    assert len(eval_lines) == 0, f"docker-entrypoint.sh must not use eval to construct commands: {eval_lines}"
+
+    # Must use POSIX positional parameters with proper quoting
+    assert 'set -- "$@"' in content
+    assert "for arg do" in content
+    assert "shift" in content
+
+
+def test_entrypoint_positional_parameter_port_substitution_preserves_star():
+    """Simulates the entrypoint positional parameter substitution logic to prove
+    '--forwarded-allow-ips *' preserves literal '*' without expanding to 'app requirements.txt'.
+    """
+    initial_args = [
+        "python",
+        "-m",
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--proxy-headers",
+        "--forwarded-allow-ips",
+        "*",
+    ]
+    port = "10000"
+
+    # Replicate the exact POSIX sh positional parameter loop
+    has_port = False
+    for arg in initial_args:
+        if arg == "--port" or arg.startswith("--port="):
+            has_port = True
+            break
+
+    output_args: list[str] = []
+    if has_port and port and port != "8000":
+        skip_next = False
+        for arg in initial_args:
+            if skip_next:
+                skip_next = False
+                continue
+            if arg == "--port":
+                output_args.append("--port")
+                output_args.append(port)
+                skip_next = True
+                continue
+            if arg.startswith("--port="):
+                output_args.append(f"--port={port}")
+                continue
+            output_args.append(arg)
+    else:
+        output_args = list(initial_args)
+
+    # 1. Exactly 11 arguments
+    assert len(output_args) == 11
+
+    # 2. Port updated to 10000
+    port_idx = output_args.index("--port")
+    assert output_args[port_idx + 1] == "10000"
+
+    # 3. Last argument is literal "*"
+    assert output_args[-1] == "*"
+
+    # 4. requirements.txt is NEVER present in arguments
+    assert "requirements.txt" not in output_args
+
+    # 5. Standalone "app" is NOT present (only "app.main:app")
+    assert "app" not in output_args
+
+
+def test_uvicorn_argument_parser_accepts_clean_args_and_rejects_extra_arg():
+    """Proves Uvicorn's Click CLI parser accepts the entrypoint's cleaned arguments,
+    and would fail with 'Got unexpected extra argument (requirements.txt)' if globbed.
+    """
+    import click
+    import uvicorn
+
+    # A. Clean arguments with literal '*' pass without Click UsageError
+    clean_uvicorn_args = [
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "10000",
+        "--proxy-headers",
+        "--forwarded-allow-ips",
+        "*",
+    ]
+    ctx = uvicorn.main.make_context("uvicorn", clean_uvicorn_args)
+    assert ctx.params["port"] == 10000
+    assert ctx.params["forwarded_allow_ips"] == "*"
+    assert ctx.params["proxy_headers"] is True
+
+    # B. Malformed arguments with globbed requirements.txt reproduce the exact Render error
+    globbed_args = [
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "10000",
+        "--proxy-headers",
+        "--forwarded-allow-ips",
+        "app",
+        "requirements.txt",
+    ]
+    with pytest.raises(click.UsageError) as exc_info:
+        uvicorn.main.make_context("uvicorn", globbed_args)
+    assert "Got unexpected extra argument (requirements.txt)" in str(exc_info.value)
