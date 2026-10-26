@@ -101,18 +101,50 @@ test("Next.js server proxy rejects unpermitted paths with 403 Forbidden", async 
   assert.match(response.body.detail, /not permitted through the backend proxy/);
 });
 
+test("Next.js server proxy rejects unauthenticated requests to expensive endpoints with 401 Unauthorized", async () => {
+  const { POST } = loadModule("src/app/api/backend/[...path]/route.ts", {
+    FASTAPI_API_KEY: "secret-test-token",
+    FASTAPI_URL: "http://127.0.0.1:8000",
+  });
+
+  // Attempting to call jobs/analyze without user session
+  const anonAnalyzeReq = new Request("http://localhost/api/backend/jobs/analyze", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ description: "Software engineer role" }),
+  });
+  const analyzeRes = await POST(anonAnalyzeReq, {
+    params: Promise.resolve({ path: ["jobs", "analyze"] }),
+  });
+  assert.equal(analyzeRes.status, 401);
+  assert.match(analyzeRes.body.detail, /Authentication required/);
+
+  // Attempting to call resume/parse without user session
+  const anonResumeReq = new Request("http://localhost/api/backend/resume/parse", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data_base64: "JVBERi0xLjc=" }),
+  });
+  const resumeRes = await POST(anonResumeReq, {
+    params: Promise.resolve({ path: ["resume", "parse"] }),
+  });
+  assert.equal(resumeRes.status, 401);
+  assert.match(resumeRes.body.detail, /Authentication required/);
+});
+
 test("Next.js server proxy rejects oversized payloads with 413 Content Too Large", async () => {
   const { POST } = loadModule("src/app/api/backend/[...path]/route.ts", {
     FASTAPI_API_KEY: "secret-test-token",
     FASTAPI_URL: "http://127.0.0.1:8000",
   });
 
-  // Declared Content-Length > 15MB
+  // Declared Content-Length > 15MB with user auth
   const oversizedReq = new Request("http://localhost/api/backend/jobs/analyze", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Content-Length": "20000000", // 20 MB
+      Authorization: "Bearer authenticated-user-session-token",
     },
     body: JSON.stringify({ description: "job" }),
   });
@@ -157,8 +189,74 @@ test("Next.js server proxy injects server-side secret and forwards permitted req
 
     assert.equal(response.status, 200);
     assert.equal(capturedUrl, "https://backend.example.com/api/v1/health");
-    assert.equal(capturedHeaders["Authorization"], "Bearer prod-server-bearer-token-9999");
+    // Secure boundary: server key must NOT masquerade as user Bearer token
+    assert.equal(capturedHeaders["Authorization"], undefined);
     assert.equal(capturedHeaders["X-API-Key"], "prod-server-bearer-token-9999");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Next.js server proxy forwards user JWT and permits SaaS workspace routes", async () => {
+  let capturedHeaders = {};
+  let capturedUrl = "";
+  let capturedMethod = "";
+
+  const mockFetch = async (url, options) => {
+    capturedUrl = url;
+    capturedHeaders = options.headers;
+    capturedMethod = options.method;
+    return {
+      status: 200,
+      text: async () => JSON.stringify({ id: "job-abc-123", title: "Isolated Job" }),
+    };
+  };
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = mockFetch;
+
+  try {
+    const { GET, PUT } = loadModule("src/app/api/backend/[...path]/route.ts", {
+      FASTAPI_API_KEY: "server-gateway-key",
+      FASTAPI_URL: "http://127.0.0.1:8000",
+    });
+
+    // 1. Client sends user token to access tenant-isolated job route
+    const userJobReq = new Request("http://localhost/api/backend/workspace/jobs/job-abc-123", {
+      method: "GET",
+      headers: {
+        Authorization: "Bearer user-session-jwt-token-aarav",
+      },
+    });
+
+    const res = await GET(userJobReq, {
+      params: Promise.resolve({ path: ["workspace", "jobs", "job-abc-123"] }),
+    });
+
+    assert.equal(res.status, 200);
+    assert.equal(capturedUrl, "http://127.0.0.1:8000/api/v1/workspace/jobs/job-abc-123");
+    assert.equal(capturedMethod, "GET");
+    // Verify user JWT was preserved for backend tenant isolation
+    assert.equal(capturedHeaders["Authorization"], "Bearer user-session-jwt-token-aarav");
+    // Verify server gateway secret was forwarded via X-API-Key
+    assert.equal(capturedHeaders["X-API-Key"], "server-gateway-key");
+
+    // 2. Client updates tenant-isolated draft with PUT
+    const draftPutReq = new Request("http://localhost/api/backend/workspace/jobs/job-abc-123/draft", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer user-session-jwt-token-aarav",
+      },
+      body: JSON.stringify({ coverLetter: "Tailored letter" }),
+    });
+
+    const putRes = await PUT(draftPutReq, {
+      params: Promise.resolve({ path: ["workspace", "jobs", "job-abc-123", "draft"] }),
+    });
+    assert.equal(putRes.status, 200);
+    assert.equal(capturedUrl, "http://127.0.0.1:8000/api/v1/workspace/jobs/job-abc-123/draft");
+    assert.equal(capturedMethod, "PUT");
   } finally {
     globalThis.fetch = originalFetch;
   }

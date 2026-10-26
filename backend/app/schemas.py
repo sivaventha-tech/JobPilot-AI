@@ -367,3 +367,127 @@ class BrowserAssistResponse(BaseModel):
     attempt_record: ApplicationAttemptSchema
     warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
+
+
+# --- Multi-Tenant SaaS Authentication & Workspace Persistence Models ---
+
+class UserRegisterRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=255, description="Valid email address")
+    password: str = Field(..., min_length=6, max_length=128, description="User password (min 6 chars)")
+    full_name: str = Field(..., min_length=1, max_length=255, description="Candidate or user full name")
+
+
+class UserLoginRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=255)
+    password: str = Field(..., min_length=1, max_length=128)
+
+
+class UserAuthResponse(BaseModel):
+    user_id: str
+    email: str
+    full_name: str
+    role: str
+    access_token: str
+    token_type: str = "Bearer"
+
+
+class UserProfileResponse(BaseModel):
+    user_id: str
+    email: str
+    full_name: str
+    phone: str = ""
+    preferred_role: str = ""
+    preferred_location: str = ""
+    years_of_experience: str = ""
+    experience_summary: str = ""
+    skills: list[str] = Field(default_factory=list)
+    portfolio_url: str = ""
+    linkedin_url: str = ""
+    education_entries: list[dict[str, Any]] = Field(default_factory=list)
+    employment_entries: list[dict[str, Any]] = Field(default_factory=list)
+    certifications: list[str] = Field(default_factory=list)
+    updated_at: str = ""
+
+
+class UserProfileUpdateRequest(BaseModel):
+    full_name: str | None = None
+    phone: str | None = None
+    preferred_role: str | None = None
+    preferred_location: str | None = None
+    years_of_experience: str | None = None
+    experience_summary: str | None = None
+    skills: list[str] | None = None
+    portfolio_url: str | None = None
+    linkedin_url: str | None = None
+    education_entries: list[dict[str, Any]] | None = None
+    employment_entries: list[dict[str, Any]] | None = None
+    certifications: list[str] | None = None
+
+
+class JobCreateRequest(BaseModel):
+    id: str | None = None
+    title: str = Field(..., min_length=1, max_length=255)
+    company: str = Field(..., min_length=1, max_length=255)
+    location: str = "Remote"
+    workMode: str = "Remote"
+    salary: str = "Not Disclosed"
+    experience: str = "Not Specified"
+    requiredSkills: list[str] = Field(default_factory=list)
+    matchedSkills: list[str] = Field(default_factory=list)
+    missingSkills: list[str] = Field(default_factory=list)
+    source: str = "Company Website"
+    applicationUrl: str = ""
+    description: str = ""
+    matchScore: int = 0
+    matchSummary: str = ""
+    status: str = "Saved"
+    reviewState: str = "Draft"
+    verificationState: str = "Pending Manual Verification"
+    verificationNote: str = ""
+    provenance: dict[str, Any] = Field(default_factory=dict)
+    webResearch: dict[str, Any] | None = None
+    outreach: dict[str, Any] = Field(default_factory=dict)
+
+
+class JobUpdateRequest(BaseModel):
+    title: str | None = None
+    company: str | None = None
+    location: str | None = None
+    workMode: str | None = None
+    salary: str | None = None
+    experience: str | None = None
+    requiredSkills: list[str] | None = None
+    matchedSkills: list[str] | None = None
+    missingSkills: list[str] | None = None
+    source: str | None = None
+    applicationUrl: str | None = None
+    description: str | None = None
+    matchScore: int | None = None
+    matchSummary: str | None = None
+    status: str | None = None
+    reviewState: str | None = None
+    verificationState: str | None = None
+    verificationNote: str | None = None
+    provenance: dict[str, Any] | None = None
+    webResearch: dict[str, Any] | None = None
+    outreach: dict[str, Any] | None = None
+
+
+class AccountDeleteResponse(BaseModel):
+    status: str
+    detail: str
+    user_id: str
+
+
+class BillingUsageResponse(BaseModel):
+    user_id: str
+    tier: str
+    period_year_month: str
+    resumes_parsed: int
+    jobs_analyzed: int
+    ai_extractions_count: int
+    web_searches_count: int
+    applications_assisted: int
+    limits: dict[str, int]
+
+

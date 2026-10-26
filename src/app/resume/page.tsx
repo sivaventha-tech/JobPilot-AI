@@ -35,6 +35,7 @@ export default function ResumePage() {
     uploadResumeMetadata,
     removeResumeMetadata,
     isHydrated,
+    user,
   } = useJobPilot();
 
   const [fullName, setFullName] = useState(profile.fullName);
@@ -210,11 +211,16 @@ export default function ResumePage() {
 
     try {
       const dataUrl = await readFileAsDataUrl(file);
-      const response: ResumeParseApiResponse = await parseResumePdfViaFastApi({
-        file_base64: dataUrl,
-        file_name: file.name,
-        mime_type: file.type || "application/pdf",
-      });
+      const response: ResumeParseApiResponse = await parseResumePdfViaFastApi(
+        {
+          file_base64: dataUrl,
+          file_name: file.name,
+          mime_type: file.type || "application/pdf",
+        },
+        {
+          authToken: user?.access_token,
+        }
+      );
 
       if (response.parse_status === "ocr_required") {
         uploadResumeMetadata({

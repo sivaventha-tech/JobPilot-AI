@@ -161,3 +161,56 @@ def enforce_request_size(
                 )
         except ValueError:
             pass
+
+
+def get_current_user(
+    auth: HTTPAuthorizationCredentials | None = Security(security_bearer),
+) -> dict[str, Any]:
+    """Dependency that validates end-user JWT bearer token and enforces tenant identity.
+    Keeps private server-to-server gateway API keys strictly separated from user authentication.
+    """
+    from typing import Any
+    from app.services.auth_service import verify_access_token
+    from app.db.repository import user_repo
+
+    token = ""
+    if isinstance(auth, HTTPAuthorizationCredentials) and auth.credentials:
+        token = auth.credentials.strip()
+    elif isinstance(auth, str) and auth.strip():
+        token = auth.strip()
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required. Please provide a valid Bearer token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        payload = verify_access_token(token)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid or expired authentication credentials: {exc}",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+    user = user_repo.get_by_id(payload["sub"])
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account no longer exists or was deleted.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user
+
+
+def get_optional_current_user(
+    auth: HTTPAuthorizationCredentials | None = Security(security_bearer),
+) -> dict[str, Any] | None:
+    """Dependency that returns current user if a valid token is present, else None."""
+    try:
+        return get_current_user(auth=auth)
+    except HTTPException:
+        return None
+

@@ -44,3 +44,12 @@ tests/.pytest_cache/
 test-results/
 playwright-report/
 .playwright/
+
+# SQLite & Persistent Local Database Files
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+backend/data/
+

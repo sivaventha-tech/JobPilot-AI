@@ -14,10 +14,12 @@ from __future__ import annotations
 
 import base64
 import html
+import ipaddress
 import json
 import re
+import socket
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
@@ -139,35 +141,191 @@ def validate_and_decode_screenshot(
     return normalized_type, decoded
 
 
+def resolve_and_validate_host(clean_host: str) -> tuple[bool, str, list[str]]:
+    """Validates a host or IP literal against SSRF policies across IPv4 and IPv6.
+    Fails closed if DNS resolution fails or returns private, loopback, or metadata destinations.
+    """
+    clean_host = clean_host.strip("[]").strip().lower()
+    if not clean_host:
+        return False, "Missing hostname.", []
+
+    # Disallowed hostnames and local domains
+    if (
+        clean_host in ("localhost", "127.0.0.1", "::1", "metadata.google.internal")
+        or clean_host.endswith(".local")
+        or clean_host.endswith(".internal")
+        or clean_host.endswith(".localhost")
+        or clean_host.endswith(".lan")
+        or clean_host.endswith(".home.arpa")
+    ):
+        return False, "Access to localhost or internal network endpoints is prohibited.", []
+
+    # 1. Check IP literal directly
+    try:
+        ip = ipaddress.ip_address(clean_host)
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+            ip = ip.ipv4_mapped
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+            or str(ip) in ("169.254.169.254", "100.100.100.200")
+        ):
+            return False, f"Access to private, loopback, or metadata IP ({clean_host}) is prohibited.", []
+        return True, "", [str(ip)]
+    except ValueError:
+        pass
+
+    # 2. Hostname; perform dual-stack DNS resolution (IPv4 & IPv6). Fail closed on error.
+    try:
+        addr_info = socket.getaddrinfo(clean_host, None)
+    except Exception as exc:
+        return False, f"DNS resolution failed for host '{clean_host}': {exc}", []
+
+    if not addr_info:
+        return False, f"Host '{clean_host}' has no DNS records.", []
+
+    validated_ips: list[str] = []
+    for _family, _socktype, _proto, _canonname, sockaddr in addr_info:
+        resolved_ip_str = sockaddr[0]
+        try:
+            resolved_ip = ipaddress.ip_address(resolved_ip_str)
+            if isinstance(resolved_ip, ipaddress.IPv6Address) and resolved_ip.ipv4_mapped:
+                resolved_ip = resolved_ip.ipv4_mapped
+            if (
+                resolved_ip.is_private
+                or resolved_ip.is_loopback
+                or resolved_ip.is_link_local
+                or resolved_ip.is_multicast
+                or resolved_ip.is_reserved
+                or resolved_ip.is_unspecified
+                or str(resolved_ip) in ("169.254.169.254", "100.100.100.200")
+            ):
+                return False, f"Host '{clean_host}' resolves to restricted IP ({resolved_ip}).", []
+            validated_ips.append(str(resolved_ip))
+        except ValueError:
+            return False, f"Invalid resolved IP '{resolved_ip_str}'.", []
+
+    if not validated_ips:
+        return False, f"No valid public IP addresses resolved for host '{clean_host}'.", []
+
+    return True, "", validated_ips
+
+
+def is_safe_public_url(url: str) -> tuple[bool, str]:
+    """Validate that the given URL does not target loopback, private RFC1918, link-local, or cloud metadata IP ranges (SSRF prevention).
+    Checks both IPv4 and IPv6 addresses across literal notations and DNS resolution.
+    """
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False, "Only HTTP and HTTPS URLs are permitted."
+        hostname = (parsed.hostname or "").strip().lower()
+        if not hostname:
+            return False, "Missing hostname in URL."
+        is_safe, error_reason, _ = resolve_and_validate_host(hostname)
+        return is_safe, error_reason
+    except Exception as exc:
+        return False, f"Malformed URL: {exc}"
+
+
+import httpcore
+
+
+class SSRFSafeNetworkBackend(httpcore.SyncBackend):
+    """Network backend that enforces pre-connection IP validation and pins connections to prevent DNS rebinding."""
+
+    def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Any = None,
+    ) -> httpcore.NetworkStream:
+        is_safe, reason, validated_ips = resolve_and_validate_host(host)
+        if not is_safe:
+            raise httpcore.ConnectError(f"SSRF policy blocked connection: {reason}")
+        target_ip = validated_ips[0]
+        return super().connect_tcp(
+            target_ip,
+            port,
+            timeout=timeout,
+            local_address=local_address,
+            socket_options=socket_options,
+        )
+
+
 def fetch_public_job_webpage(
     url: str, timeout_seconds: float, client: httpx.Client | None = None
 ) -> tuple[ExtractedJobFields | None, str]:
     """Retrieve public job page content ONLY when access is permitted.
 
     Never bypasses login walls, CAPTCHAs, OTPs, or 401/403/429 status codes.
+    Enforces SSRF prevention on the initial target, at socket connection (preventing DNS rebinding),
+    and across every subsequent redirect hop.
     """
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
-        return None, "Invalid URL scheme or hostname."
-
     headers = {
         "User-Agent": "JobPilotAI-Inspector/0.2 (+https://localhost; PublicJobMetadataReader)",
         "Accept": "text/html,application/xhtml+xml",
     }
 
     should_close = client is None
-    http_client = client or httpx.Client(
-        timeout=timeout_seconds, follow_redirects=True, headers=headers
-    )
+    if client:
+        http_client = client
+    else:
+        transport = httpx.HTTPTransport(retries=0)
+        transport._pool._network_backend = SSRFSafeNetworkBackend()
+        http_client = httpx.Client(
+            timeout=timeout_seconds,
+            follow_redirects=False,
+            headers=headers,
+            transport=transport,
+        )
+
+    current_url = url
+    resp = None
+    max_redirects = 3
+
     try:
-        resp = http_client.get(url, headers=headers)
-    except httpx.TimeoutException:
-        return None, f"Timed out after {timeout_seconds}s while requesting public job URL."
-    except httpx.RequestError as exc:
-        return None, f"Network request to public job URL failed: {exc.__class__.__name__}."
+        for _ in range(max_redirects + 1):
+            is_safe, error_reason = is_safe_public_url(current_url)
+            if not is_safe:
+                return None, error_reason
+
+            try:
+                resp = http_client.get(current_url, headers=headers)
+            except httpx.TimeoutException:
+                return None, f"Timed out after {timeout_seconds}s while requesting public job URL."
+            except httpx.ConnectError as exc:
+                if "SSRF policy blocked" in str(exc):
+                    return None, f"Destination blocked by SSRF policy: {exc}"
+                return None, f"Network connection failed: {exc.__class__.__name__}."
+            except httpx.RequestError as exc:
+                return None, f"Network request to public job URL failed: {exc.__class__.__name__}."
+
+            # Handle 3xx redirects manually to inspect and enforce SSRF validation on target
+            if resp.status_code in (301, 302, 303, 307, 308):
+                location = resp.headers.get("location")
+                if not location:
+                    return None, "Remote server returned redirect without Location header."
+                next_url = urljoin(current_url, location)
+                is_redirect_safe, redirect_reason = is_safe_public_url(next_url)
+                if not is_redirect_safe:
+                    return None, f"Redirect destination blocked by SSRF policy: {redirect_reason}"
+                current_url = next_url
+                continue
+
+            break
     finally:
         if should_close:
             http_client.close()
+
+    if resp is None:
+        return None, "No response received from remote job server."
 
     if resp.status_code in (401, 403, 407, 429, 451):
         return (

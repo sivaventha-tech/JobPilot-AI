@@ -10,7 +10,17 @@ services:
     plan: starter
     region: oregon
     healthCheckPath: /api/v1/health
+    disk:
+      name: jobpilot-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
+      - key: JOBPILOT_DB_PATH
+        value: /var/data/jobpilot.db
+      - key: JOBPILOT_JWT_SECRET
+        sync: false # Generate strong 32+ char secret in Render Dashboard Secret UI
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false # Set in Render Dashboard Secret UI from Stripe Dashboard
       - key: JOBPILOT_AI_PROVIDER
         value: gemini # or openai / none
       - key: GEMINI_API_KEY

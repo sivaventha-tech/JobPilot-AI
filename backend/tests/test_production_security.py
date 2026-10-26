@@ -88,6 +88,17 @@ def _invoke_endpoint(
         kwargs["auth"] = auth_cred
     if "x_api_key" in sig.parameters:
         kwargs["x_api_key"] = x_api_key
+    if "current_user" in sig.parameters:
+        from app.services.auth_service import verify_access_token
+        from app.db.repository import user_repo
+        if auth_token:
+            try:
+                jwt_payload = verify_access_token(auth_token)
+                u = user_repo.get_by_id(jwt_payload["sub"])
+                if u:
+                    kwargs["current_user"] = u
+            except Exception:
+                pass
 
     try:
         res = target_route.endpoint(**kwargs)
@@ -169,23 +180,22 @@ def test_invalid_auth_token_rejected_with_401() -> None:
 
 
 def test_valid_bearer_token_and_x_api_key_allowed() -> None:
-    """Confirms valid Bearer token and X-API-Key are both accepted and allow access."""
+    """Confirms valid Bearer token and X-API-Key are both accepted and allow access on gateway endpoints."""
     app = create_app(settings_provider=lambda: PROD_SETTINGS)
-    analyze_payload = JobAnalyzeRequest(
-        source="Company Website",
-        description="Job Title: Senior Full-Stack Engineer\nCompany: Acme Corp\nRequired Skills: Python, FastAPI",
+    match_payload = JobMatchRequest(
+        extracted_job=ExtractedJobFields(title="Senior Full-Stack Engineer", company="Acme Corp"),
+        candidate_profile=CandidateProfileSnapshot(full_name="Aarav Mehta"),
     )
 
     # A. Via Bearer Token
     status_code, data = _invoke_endpoint(
         app,
         "POST",
-        "/api/v1/jobs/analyze",
-        analyze_payload,
+        "/api/v1/jobs/match",
+        match_payload,
         auth_token="prod-secure-token-2026-xyz",
     )
     assert status_code == 200
-    assert data["extracted"]["title"] == "Senior Full-Stack Engineer"
 
     # Reset limiter for second call in test
     global_rate_limiter.reset()
@@ -194,12 +204,11 @@ def test_valid_bearer_token_and_x_api_key_allowed() -> None:
     status_code, data = _invoke_endpoint(
         app,
         "POST",
-        "/api/v1/jobs/analyze",
-        analyze_payload,
+        "/api/v1/jobs/match",
+        match_payload,
         x_api_key="prod-secure-token-2026-xyz",
     )
     assert status_code == 200
-    assert data["extracted"]["title"] == "Senior Full-Stack Engineer"
 
 
 def test_auth_fails_closed_when_server_token_unconfigured() -> None:

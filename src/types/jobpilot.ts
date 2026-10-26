@@ -395,3 +395,25 @@ export interface FastApiServiceConfig {
   supabaseConfigured: boolean;
   mode: "local-mock" | "fastapi-connected";
 }
+
+export interface UserAuthSession {
+  user_id: string;
+  email: string;
+  full_name: string;
+  role: string;
+  access_token: string;
+  token_type: string;
+  tier?: "Free" | "Pro" | "Enterprise";
+}
+
+export interface UserRegistrationInput {
+  email: string;
+  password: string;
+  full_name: string;
+}
+
+export interface UserLoginInput {
+  email: string;
+  password: string;
+}
+

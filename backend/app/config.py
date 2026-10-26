@@ -73,6 +73,13 @@ class BackendSettings:
     )
     cors_origin_regex: str | None = None
 
+    # SaaS Multi-Tenant Database, Auth & Billing Settings
+    db_path: str = "backend/data/jobpilot.db"
+    jwt_secret: str = field(repr=False, default="")
+    pbkdf2_iterations: int = 100000
+    stripe_secret_key: str = field(repr=False, default="")
+    stripe_webhook_secret: str = field(repr=False, default="")
+
     @property
     def vision_ai_configured(self) -> bool:
         if self.ai_provider == "gemini":
@@ -270,4 +277,9 @@ def load_settings() -> BackendSettings:
         match_weight_role_location=w_role,
         cors_origins=origins,
         cors_origin_regex=raw_regex,
+        db_path=os.getenv("JOBPILOT_DB_PATH", "backend/data/jobpilot.db").strip(),
+        jwt_secret=os.getenv("JOBPILOT_JWT_SECRET", "").strip(),
+        pbkdf2_iterations=int(os.getenv("JOBPILOT_PBKDF2_ITERATIONS", "100000")),
+        stripe_secret_key=_clean_key(os.getenv("STRIPE_SECRET_KEY")),
+        stripe_webhook_secret=_clean_key(os.getenv("STRIPE_WEBHOOK_SECRET")),
     )

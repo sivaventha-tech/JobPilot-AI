@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useJobPilot } from "@/context/JobPilotContext";
+import { AuthModal } from "@/components/AuthModal";
 import {
   LayoutDashboard,
   PlusSquare,
@@ -18,6 +19,11 @@ import {
   RotateCcw,
   ShieldCheck,
   Database,
+  Cloud,
+  LogIn,
+  LogOut,
+  User,
+  Trash2,
 } from "lucide-react";
 
 interface NavItem {
@@ -49,9 +55,12 @@ const NAV_ITEMS: NavItem[] = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { jobs, profile, resetDemoData } = useJobPilot();
+  const { jobs, profile, resetDemoData, user, isAuthenticated, logout, deleteAccount } = useJobPilot();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState<"login" | "register">("login");
 
   const pendingApprovals = jobs.filter(
     (j) =>
@@ -69,6 +78,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     resetDemoData();
     setResetConfirm(false);
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!deleteConfirm) {
+      setDeleteConfirm(true);
+      setTimeout(() => setDeleteConfirm(false), 5000);
+      return;
+    }
+    await deleteAccount();
+    setDeleteConfirm(false);
+  };
+
+  const openAuth = (mode: "login" | "register") => {
+    setAuthModalMode(mode);
+    setAuthModalOpen(true);
   };
 
   return (
@@ -183,45 +207,103 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* Architecture & Safety Status Card */}
         <div className="p-4 border-t border-slate-200 space-y-3 bg-slate-50/60">
-          <div className="rounded-lg bg-white border border-slate-200 p-3 text-xs space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-semibold text-slate-800 flex items-center gap-1.5">
-                <Database className="w-3.5 h-3.5 text-slate-600" />
-                Local Prototype Mode
-              </span>
-              <span className="w-2 h-2 rounded-full bg-amber-500" />
+          {isAuthenticated && user ? (
+            <div className="rounded-lg bg-emerald-50/70 border border-emerald-200 p-3 text-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-emerald-950 flex items-center gap-1.5">
+                  <Cloud className="w-3.5 h-3.5 text-emerald-600" />
+                  Cloud Workspace
+                </span>
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Active
+                </span>
+              </div>
+              <p className="text-emerald-800 text-[11px] truncate">
+                Tenant: {user.email}
+              </p>
+              <div className="pt-1 border-t border-emerald-200/60 flex items-center justify-between text-[11px]">
+                <span className="text-emerald-700 font-medium">Tier: {user.tier || "Free"}</span>
+                <button
+                  type="button"
+                  onClick={logout}
+                  className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-900 font-semibold"
+                >
+                  <LogOut className="w-3 h-3" />
+                  Sign Out
+                </button>
+              </div>
             </div>
-            <p className="text-slate-500 leading-relaxed">
-              Persisted in browser <code className="text-[11px] bg-slate-100 px-1 rounded">localStorage</code>. Ready for FastAPI + Supabase connection.
-            </p>
-            <div className="pt-1 border-t border-slate-100 flex items-center gap-1.5 text-[11px] text-emerald-700 font-medium">
-              <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-              Manual approval enforced
+          ) : (
+            <div className="rounded-lg bg-white border border-slate-200 p-3 text-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+                  <Database className="w-3.5 h-3.5 text-slate-600" />
+                  Local Demo Mode
+                </span>
+                <span className="w-2 h-2 rounded-full bg-amber-500" />
+              </div>
+              <p className="text-slate-500 leading-relaxed text-[11px]">
+                Running in browser <code className="text-[10px] bg-slate-100 px-1 rounded">localStorage</code>.
+              </p>
+              <div className="pt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openAuth("login")}
+                  className="flex-1 py-1.5 px-2 text-center text-xs font-semibold bg-slate-900 text-white rounded-md hover:bg-slate-800 transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <LogIn className="w-3 h-3" />
+                  Sign In
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openAuth("register")}
+                  className="py-1.5 px-2 text-center text-xs font-medium border border-slate-300 text-slate-700 rounded-md hover:bg-slate-100 transition-colors"
+                >
+                  Register
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="flex items-center justify-between px-1">
             <div className="truncate pr-2">
               <div className="text-xs font-semibold text-slate-800 truncate">
-                {profile.fullName}
+                {isAuthenticated && user?.full_name ? user.full_name : profile.fullName}
               </div>
               <div className="text-[11px] text-slate-500 truncate">
                 {profile.preferredRole}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={handleReset}
-              title="Reset localStorage to initial demo data"
-              className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium border transition-colors shrink-0 ${
-                resetConfirm
-                  ? "bg-rose-600 text-white border-rose-600"
-                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
-              }`}
-            >
-              <RotateCcw className="w-3 h-3" />
-              {resetConfirm ? "Confirm?" : "Reset"}
-            </button>
+            {isAuthenticated ? (
+              <button
+                type="button"
+                onClick={handleDeleteAccount}
+                title="GDPR / CCPA Right to be Forgotten: Permanently erase your tenant account and all jobs"
+                className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium border transition-colors shrink-0 ${
+                  deleteConfirm
+                    ? "bg-rose-600 text-white border-rose-600"
+                    : "bg-white text-rose-600 border-rose-200 hover:bg-rose-50"
+                }`}
+              >
+                <Trash2 className="w-3 h-3" />
+                {deleteConfirm ? "Erase all?" : "Delete Account"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleReset}
+                title="Reset localStorage to initial demo data"
+                className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium border transition-colors shrink-0 ${
+                  resetConfirm
+                    ? "bg-rose-600 text-white border-rose-600"
+                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
+                }`}
+              >
+                <RotateCcw className="w-3 h-3" />
+                {resetConfirm ? "Confirm?" : "Reset"}
+              </button>
+            )}
           </div>
         </div>
       </aside>
@@ -240,15 +322,37 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* Top Safety & Prototype Banner */}
         <div className="bg-white border-b border-slate-200 px-6 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
           <div className="flex items-center gap-2">
-            <span className="inline-flex items-center px-2 py-0.5 rounded font-semibold bg-slate-900 text-white text-[11px]">
-              Simulated AI Prototype
-            </span>
-            <span>
-              AI analysis & match scoring use local mock heuristics until the Python FastAPI backend is connected.
-            </span>
+            {isAuthenticated && user ? (
+              <>
+                <span className="inline-flex items-center px-2 py-0.5 rounded font-semibold bg-emerald-700 text-white text-[11px]">
+                  Cloud Workspace
+                </span>
+                <span>
+                  Authenticated as <strong className="text-slate-800">{user.email}</strong>. Multi-tenant data isolation active.
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="inline-flex items-center px-2 py-0.5 rounded font-semibold bg-slate-900 text-white text-[11px]">
+                  Simulated Prototype Mode
+                </span>
+                <span>
+                  Job data is stored in your local browser. Sign in or register to persist across devices in the cloud.
+                </span>
+              </>
+            )}
           </div>
           <div className="flex items-center gap-4 text-slate-500">
-            <span>No auto-submissions • No automatic emails/WhatsApp</span>
+            <span>No auto-submissions • Human approval required</span>
+            {!isAuthenticated && (
+              <button
+                type="button"
+                onClick={() => openAuth("login")}
+                className="text-xs font-semibold text-slate-900 underline hover:text-slate-700 cursor-pointer"
+              >
+                Sign In / Register
+              </button>
+            )}
           </div>
         </div>
 
@@ -256,6 +360,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        defaultMode={authModalMode}
+      />
     </div>
   );
 }

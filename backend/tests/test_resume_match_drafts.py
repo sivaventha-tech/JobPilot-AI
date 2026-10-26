@@ -153,7 +153,17 @@ def _invoke_post_route(
     assert target_route is not None, f"Route {path} not found"
     try:
         payload = model_cls.model_validate(json_body)
-        res = target_route.endpoint(payload=payload, settings=cfg)
+        kwargs: dict[str, Any] = {"payload": payload, "settings": cfg}
+        import inspect
+        sig = inspect.signature(target_route.endpoint)
+        if "current_user" in sig.parameters:
+            import uuid
+            from app.db.repository import subscription_repo, user_repo
+            uid = uuid.uuid4().hex[:8]
+            test_usr = user_repo.create(f"test_resume_{uid}@example.com", "hash", "Test Resume User")
+            subscription_repo.upsert(test_usr["id"], "pro", "active")
+            kwargs["current_user"] = test_usr
+        res = target_route.endpoint(**kwargs)
         return 200, res.model_dump()
     except ValidationError as exc:
         return 422, {"detail": exc.errors()}

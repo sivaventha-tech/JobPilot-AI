@@ -41,7 +41,7 @@ const SOURCES: JobSource[] = ["LinkedIn", "Naukri", "Company Website", "Other"];
 
 export default function AddJobPage() {
   const router = useRouter();
-  const { addSimulatedJob, profile } = useJobPilot();
+  const { addSimulatedJob, profile, user } = useJobPilot();
   const serviceCfg = getServiceConfig();
 
   // Mode toggle: "fastapi" (calls POST /api/v1/jobs/analyze) vs "simulated" (local prototype)
@@ -232,6 +232,7 @@ export default function AddJobPage() {
       if (executionMode === "fastapi") {
         const apiRes = await analyzeJobViaFastApi(rawInput, profile, {
           baseUrl: fastApiBaseUrl,
+          authToken: user?.access_token,
         });
         populateReviewFormFromAnalysis(apiRes);
       } else {

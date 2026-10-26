@@ -15,6 +15,9 @@ import {
   SkillGapItem,
   SourceLink,
   TailoredDraftsApiResponse,
+  UserAuthSession,
+  UserLoginInput,
+  UserRegistrationInput,
   VerificationState,
 } from "@/types/jobpilot";
 
@@ -98,6 +101,7 @@ export async function analyzeJobViaFastApi(
     baseUrl?: string;
     timeoutMs?: number;
     fetchImpl?: typeof fetch;
+    authToken?: string;
   }
 ): Promise<JobAnalyzeApiResponse> {
   const cfg = getServiceConfig();
@@ -151,13 +155,18 @@ export async function analyzeJobViaFastApi(
     run_web_research: true,
   };
 
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (options?.authToken) {
+    headers["Authorization"] = `Bearer ${options.authToken}`;
+  }
+
   try {
     const response = await fetchFn(endpoint, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
+      headers,
       body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
@@ -233,6 +242,7 @@ export async function parseResumePdfViaFastApi(
     baseUrl?: string;
     timeoutMs?: number;
     fetchImpl?: typeof fetch;
+    authToken?: string;
   }
 ): Promise<ResumeParseApiResponse> {
   const cfg = getServiceConfig();
@@ -261,13 +271,18 @@ export async function parseResumePdfViaFastApi(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (options?.authToken) {
+    headers["Authorization"] = `Bearer ${options.authToken}`;
+  }
+
   try {
     const response = await fetchFn(endpoint, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
+      headers,
       body: JSON.stringify({
         filename,
         content_type: contentType,
@@ -1464,6 +1479,7 @@ export async function callBrowserAssistantApi(
     baseUrl?: string;
     timeoutMs?: number;
     fetchImpl?: typeof fetch;
+    authToken?: string;
   }
 ): Promise<BrowserAssistApiResponse> {
   const cfg = getServiceConfig();
@@ -1516,13 +1532,18 @@ export async function callBrowserAssistantApi(
     simulate_outcome: payload.simulate_outcome,
   };
 
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (options?.authToken) {
+    headers["Authorization"] = `Bearer ${options.authToken}`;
+  }
+
   try {
     const res = await fetchFn(endpoint, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
+      headers,
       body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
@@ -1705,5 +1726,299 @@ export function getInternalJobPath(jobId: string | null | undefined): string {
   }
   return `/jobs/${encodeURIComponent(jobId!.trim())}`;
 }
+
+// ---------------------------------------------------------------------------
+// SaaS Multi-Tenant Authentication & Cloud Workspace API Client
+// ---------------------------------------------------------------------------
+
+function resolveSaaSEndpoint(relativePath: string, baseUrl?: string): string {
+  const base = (baseUrl || getServiceConfig().baseUrl).replace(/\/+$/, "");
+  const cleanPath = relativePath.replace(/^\/+/, "");
+  if (base.endsWith("/api/backend")) {
+    return `${base}/${cleanPath}`;
+  }
+  if (base.endsWith("/api/v1")) {
+    return `${base}/${cleanPath}`;
+  }
+  return `${base}/api/v1/${cleanPath}`;
+}
+
+export class SaaSClientError extends Error {
+  statusCode: number;
+  constructor(message: string, statusCode = 500) {
+    super(message);
+    this.name = "SaaSClientError";
+    this.statusCode = statusCode;
+  }
+}
+
+/**
+ * Registers a new user account with email, password, and full name.
+ */
+export async function registerUserApi(
+  input: UserRegistrationInput,
+  options?: { baseUrl?: string; fetchImpl?: typeof fetch }
+): Promise<UserAuthSession> {
+  const fetchFn = options?.fetchImpl ?? fetch;
+  const url = resolveSaaSEndpoint("auth/register", options?.baseUrl);
+
+  const res = await fetchFn(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new SaaSClientError(data.detail || `Registration failed with status ${res.status}`, res.status);
+  }
+  return data as UserAuthSession;
+}
+
+/**
+ * Logs in an existing user with email and password.
+ */
+export async function loginUserApi(
+  input: UserLoginInput,
+  options?: { baseUrl?: string; fetchImpl?: typeof fetch }
+): Promise<UserAuthSession> {
+  const fetchFn = options?.fetchImpl ?? fetch;
+  const url = resolveSaaSEndpoint("auth/login", options?.baseUrl);
+
+  const res = await fetchFn(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new SaaSClientError(data.detail || `Login failed with status ${res.status}`, res.status);
+  }
+  return data as UserAuthSession;
+}
+
+/**
+ * Fetches the currently authenticated user's session details using the JWT access token.
+ */
+export async function getCurrentUserApi(
+  token: string,
+  options?: { baseUrl?: string; fetchImpl?: typeof fetch }
+): Promise<{ user_id: string; email: string; full_name: string; role: string }> {
+  const fetchFn = options?.fetchImpl ?? fetch;
+  const url = resolveSaaSEndpoint("auth/me", options?.baseUrl);
+
+  const res = await fetchFn(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new SaaSClientError(data.detail || `Session check failed with status ${res.status}`, res.status);
+  }
+  return data;
+}
+
+/**
+ * Fetches the tenant's profile from the cloud database.
+ */
+export async function fetchUserProfileApi(
+  token: string,
+  options?: { baseUrl?: string; fetchImpl?: typeof fetch }
+): Promise<any> {
+  const fetchFn = options?.fetchImpl ?? fetch;
+  const url = resolveSaaSEndpoint("profile", options?.baseUrl);
+
+  const res = await fetchFn(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new SaaSClientError(data.detail || `Failed to fetch profile: ${res.status}`, res.status);
+  }
+  return data;
+}
+
+/**
+ * Updates the tenant's profile in the cloud database.
+ */
+export async function updateUserProfileApi(
+  token: string,
+  profile: Partial<CandidateProfile>,
+  options?: { baseUrl?: string; fetchImpl?: typeof fetch }
+): Promise<any> {
+  const fetchFn = options?.fetchImpl ?? fetch;
+  const url = resolveSaaSEndpoint("profile", options?.baseUrl);
+
+  const payload = {
+    full_name: profile.fullName,
+    phone: profile.phone,
+    preferred_role: profile.preferredRole,
+    preferred_location: profile.preferredLocation,
+    years_of_experience: profile.yearsOfExperience,
+    experience_summary: profile.experienceSummary,
+    skills: profile.skills,
+    portfolio_url: profile.portfolioOrGithubUrl,
+    education_entries: profile.educationEntries || profile.educationList || [],
+    employment_entries: profile.employmentHistory || [],
+    certifications: profile.certifications || [],
+  };
+
+  const res = await fetchFn(url, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new SaaSClientError(data.detail || `Failed to update profile: ${res.status}`, res.status);
+  }
+  return data;
+}
+
+/**
+ * Fetches all jobs owned by the authenticated tenant.
+ */
+export async function fetchWorkspaceJobsApi(
+  token: string,
+  options?: { baseUrl?: string; fetchImpl?: typeof fetch }
+): Promise<JobRecord[]> {
+  const fetchFn = options?.fetchImpl ?? fetch;
+  const url = resolveSaaSEndpoint("workspace/jobs", options?.baseUrl);
+
+  const res = await fetchFn(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  const data = await res.json().catch(() => []);
+  if (!res.ok) {
+    throw new SaaSClientError((data as any)?.detail || `Failed to fetch workspace jobs: ${res.status}`, res.status);
+  }
+  return Array.isArray(data) ? (data as JobRecord[]) : [];
+}
+
+/**
+ * Creates or imports a job into the authenticated tenant's cloud workspace.
+ */
+export async function createWorkspaceJobApi(
+  token: string,
+  job: JobRecord,
+  options?: { baseUrl?: string; fetchImpl?: typeof fetch }
+): Promise<JobRecord> {
+  const fetchFn = options?.fetchImpl ?? fetch;
+  const url = resolveSaaSEndpoint("workspace/jobs", options?.baseUrl);
+
+  const res = await fetchFn(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(job),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new SaaSClientError(data.detail || `Failed to create job: ${res.status}`, res.status);
+  }
+  return data as JobRecord;
+}
+
+/**
+ * Updates a job record in the tenant's cloud workspace.
+ */
+export async function updateWorkspaceJobApi(
+  token: string,
+  jobId: string,
+  job: Partial<JobRecord>,
+  options?: { baseUrl?: string; fetchImpl?: typeof fetch }
+): Promise<JobRecord> {
+  const fetchFn = options?.fetchImpl ?? fetch;
+  const url = resolveSaaSEndpoint(`workspace/jobs/${encodeURIComponent(jobId)}`, options?.baseUrl);
+
+  const res = await fetchFn(url, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(job),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new SaaSClientError(data.detail || `Failed to update job: ${res.status}`, res.status);
+  }
+  return data as JobRecord;
+}
+
+/**
+ * Deletes a job record from the tenant's cloud workspace.
+ */
+export async function deleteWorkspaceJobApi(
+  token: string,
+  jobId: string,
+  options?: { baseUrl?: string; fetchImpl?: typeof fetch }
+): Promise<{ status: string; detail: string; job_id: string }> {
+  const fetchFn = options?.fetchImpl ?? fetch;
+  const url = resolveSaaSEndpoint(`workspace/jobs/${encodeURIComponent(jobId)}`, options?.baseUrl);
+
+  const res = await fetchFn(url, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new SaaSClientError(data.detail || `Failed to delete job: ${res.status}`, res.status);
+  }
+  return data;
+}
+
+/**
+ * Permanently deletes the user account, cascading to all resumes, jobs, drafts, and applications.
+ */
+export async function deleteAccountApi(
+  token: string,
+  options?: { baseUrl?: string; fetchImpl?: typeof fetch }
+): Promise<{ status: string; detail: string; user_id: string }> {
+  const fetchFn = options?.fetchImpl ?? fetch;
+  const url = resolveSaaSEndpoint("auth/account", options?.baseUrl);
+
+  const res = await fetchFn(url, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new SaaSClientError(data.detail || `Account deletion failed: ${res.status}`, res.status);
+  }
+  return data;
+}
+
 
 

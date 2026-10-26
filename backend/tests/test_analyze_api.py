@@ -77,6 +77,12 @@ class DirectFastAPIClient:
             if isinstance(r, APIRoute):
                 for m in r.methods:
                     self._routes[(m.upper(), r.path)] = r
+        from app.db.repository import subscription_repo, user_repo
+        test_usr = user_repo.get_by_email("test_client@example.com")
+        if not test_usr:
+            test_usr = user_repo.create("test_client@example.com", "hash", "Test Client")
+        subscription_repo.upsert(test_usr["id"], "pro", "active")
+        self.test_user = test_usr
 
     def get(self, path: str) -> DirectResponse:
         route = self._routes[("GET", path)]
@@ -87,7 +93,12 @@ class DirectFastAPIClient:
         route = self._routes[("POST", path)]
         try:
             payload = JobAnalyzeRequest.model_validate(json)
-            res = route.endpoint(payload=payload, settings=self.settings)
+            kwargs = {"payload": payload, "settings": self.settings}
+            import inspect
+            sig = inspect.signature(route.endpoint)
+            if "current_user" in sig.parameters:
+                kwargs["current_user"] = self.test_user
+            res = route.endpoint(**kwargs)
             return DirectResponse(200, res.model_dump())
         except ValidationError as exc:
             return DirectResponse(422, {"detail": exc.errors()})
@@ -334,7 +345,10 @@ def test_vision_provider_timeout_and_malformed_json_handling() -> None:
     assert fields.contact.recruiter_name == "Ananya Sharma"
 
 
-def test_public_webpage_extraction_and_access_restriction_respect() -> None:
+def test_public_webpage_extraction_and_access_restriction_respect(monkeypatch: pytest.MonkeyPatch) -> None:
+    import socket
+    monkeypatch.setattr(socket, "getaddrinfo", lambda host, port: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))])
+
     # 1. Verify 403 Forbidden is respected and not bypassed
     def forbidden_handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(403, text="Forbidden")
